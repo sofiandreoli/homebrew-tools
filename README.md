@@ -63,7 +63,7 @@ Run all `wop` commands from the **project root** that contains `.devmanager.yml`
 ## Install (Homebrew)
 
 ```bash
-brew install sofiandreoli/tap/wop
+brew install sofiandreoli/tools/wop
 wop --version
 ```
 
@@ -189,6 +189,24 @@ Supported **adapter** names today:
 | `postgresql`  | Uses `createdb`, `dropdb`, `psql`.    |
 | `mongodb`     | Mongo creation/drop.                  |
 | `sqlite`      | File-based SQLite under the worktree. |
+
+#### Custom adapters
+
+If your database isn't supported, define a custom adapter under `custom_adapters`. Provide shell commands for `create`, `drop`, and `url` — use `{db_name}` as the placeholder for the resolved database name. Then reference it by name in `databases.<logical>.adapter`.
+
+```yaml
+custom_adapters:
+  mysql:
+    create: mysql -e "CREATE DATABASE {db_name}"
+    drop: mysql -e "DROP DATABASE IF EXISTS {db_name}"
+    exists: mysql -e "USE {db_name}" 2>/dev/null  # optional
+    url: mysql://root@localhost/{db_name}
+
+databases:
+  primary:
+    adapter: mysql
+    name_pattern: "{app}_{branch_slug}"
+```
 
 ### `hooks`
 
