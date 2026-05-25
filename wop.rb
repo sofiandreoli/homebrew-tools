@@ -10,7 +10,7 @@ class Wop < Formula
   on_macos do
     if Hardware::CPU.intel?
       url "https://github.com/sofiandreoli/wop-releases/releases/download/v1.0.0/wop_1.0.0_darwin_amd64.tar.gz"
-      sha256 "352164f44cba520807cc6faf5acb01bc7a3a5faba8bc4b68ec9e34313abd78d5"
+      sha256 "f524f9502f2ab043698225b787e903dce9738c59b7e6740e7b777efe57d9e348"
 
       define_method(:install) do
         bin.install "wop"
@@ -18,7 +18,7 @@ class Wop < Formula
     end
     if Hardware::CPU.arm?
       url "https://github.com/sofiandreoli/wop-releases/releases/download/v1.0.0/wop_1.0.0_darwin_arm64.tar.gz"
-      sha256 "61bbfb50794c599d34822ac1f670040241cc4c8963ea585952fc878d1e28de82"
+      sha256 "23d1010442455ec8fae4693617de99fec93ac56e4cf9f9a789f3da284f07c2e3"
 
       define_method(:install) do
         bin.install "wop"
@@ -29,14 +29,14 @@ class Wop < Formula
   on_linux do
     if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
       url "https://github.com/sofiandreoli/wop-releases/releases/download/v1.0.0/wop_1.0.0_linux_amd64.tar.gz"
-      sha256 "6e1c35628a24da7361cf7a54b6996cc2f60cf6b5a524af9fd32934c135efc0c2"
+      sha256 "5b8b846e9ffe58a5153369cec4f9b8ce454e6f4cf0b05a5ec718c9c0e95504bf"
       define_method(:install) do
         bin.install "wop"
       end
     end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
       url "https://github.com/sofiandreoli/wop-releases/releases/download/v1.0.0/wop_1.0.0_linux_arm64.tar.gz"
-      sha256 "7177b7cf9b0a747e4aec5e8fe88751e11aa9ffefe8f1fbfedcd05d6e68b2fe84"
+      sha256 "fedc5c56d937729b3c42750ba60cd38b5781934ebcbbc03ea6d0dd05d3603c90"
       define_method(:install) do
         bin.install "wop"
       end
