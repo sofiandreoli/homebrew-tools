@@ -2,6 +2,18 @@
 
 `wop` is a small CLI that spins up an **isolated development environment per Git branch** using **git worktrees**: a separate checkout, its own ports, generated `.env` files, databases, install/migrate hooks, and dev servers—without clobbering your main working tree.
 
+Environments are scoped **per project** (the directory containing `.devmanager.yml`): two different repositories can have the same branch name without interfering, and `wop stop`/`restart`/`down` only ever touch the current project's environment. Worktrees are always created as siblings of the repository root, and `wop` commands work from any subdirectory of the project.
+
+### Supported platforms
+
+- **CLI (`wop`)**: macOS and Linux.
+- **Desktop (Wopper)**: macOS (Apple Silicon and Intel).
+- Windows is not supported yet (the process, port and terminal handling are Unix-specific).
+
+### Versioning
+
+The CLI and the desktop app are released separately (`wop` via Homebrew, `Wopper.app` via DMG) but embed the **same engine** and share one `registry.json`. They stamp a shared version string and record which binary last wrote the registry. Keep them on the **same minor version** — if they diverge, `wop` prints a one-line warning naming both versions. A registry written by a *newer* schema than your binary understands is never modified (upgrade the older side). The app's version is shown in its Help view, alongside a detected `wop` CLI version if one is installed.
+
 ---
 
 ## Why worktrees?
@@ -167,7 +179,7 @@ You need at least one **named service** (`backend`, `frontend`, …). Each has `
 | Field        | Required | Meaning                                                                                                                |
 | ------------ | -------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `dir`        | No       | Subdirectory inside the worktree where the command runs (e.g. `eagerpm-api`). Use `.` or omit for the worktree root.   |
-| `cmd`        | **Yes**  | Shell command to start the service (split on spaces for the executable + args). Logs go to `<dir>/<service-name>.log`. |
+| `cmd`        | **Yes**  | Shell command to start the service. It runs through `sh -c`, so `$VARS`, `&&`, pipes and quoted arguments all work. Logs go to `<dir>/<service-name>.log`. |
 | `port_range` | **Yes**  | `[low, high]` inclusive. `wop` picks the first free port in that range. Ranges **must not overlap** between services.  |
 | `env_source` | No       | Template env file (relative to cwd when you run `wop`). See [Template variables](#template-variables-placeholders).    |
 | `env`        | No       | Key/value pairs patched onto the result of `env_source` (see above).                                                   |
@@ -179,7 +191,8 @@ A map of **logical** names (e.g. `primary`, `test`):
 | Field           | Meaning                                                                                                                                                                                   |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `adapter`       | One of the supported adapters (see below).                                                                                                                                                |
-| `name_pattern`  | Pattern for the physical DB name. Placeholders: `{app}`, `{app_name}`, `{branch_slug}` — see [Database `name_pattern` vs env `{branch_slug}`](#database-name_pattern-vs-env-branch_slug). |
+| `name_pattern`  | Pattern for the physical DB name. Placeholders: `{app}`, `{app_name}`, `{branch}`, `{branch_slug}` (`{branch}` and `{branch_slug}` are synonyms here) — see [Database `name_pattern` vs env `{branch_slug}`](#database-name_pattern-vs-env-branch_slug). An unknown `{token}` is a hard error. |
+| `copy_from`     | Optional. Name of an **existing** database to clone instead of creating an empty one — see [Copying a database](#copying-a-database). Used literally (no placeholder expansion).          |
 | `migrate_on_up` | Parsed and shown in `wop config show`; **not automatically run by `wop` yet** — run migrations in `after_create` hooks if you need them.                                                  |
 
 Supported **adapter** names today:
@@ -189,10 +202,67 @@ Supported **adapter** names today:
 | `postgresql`  | Uses `createdb`, `dropdb`, `psql`.    |
 | `mongodb`     | Mongo creation/drop.                  |
 | `sqlite`      | File-based SQLite under the worktree. |
+| `redis`       | Namespaced keys via `redis-cli`.      |
+
+The short aliases `postgres`, `mongo` and `sqlite3` are also accepted for backward compatibility, but the canonical names above are recommended.
+
+#### Database connection (`connection`)
+
+By default `wop` connects to a database server on `localhost` (and respects the adapter's standard environment variables such as `PGHOST`/`PGPORT`/`PGUSER`). To point at a non-default host, port or user, add an optional `connection` block to a logical database:
+
+```yaml
+databases:
+  primary:
+    adapter: postgresql
+    name_pattern: "{app}_{branch_slug}"
+    connection:
+      host: localhost
+      port: 5433
+      user: postgres
+      password_env: MY_PG_PASSWORD   # NAME of an env var, never the password itself
+```
+
+- Every field is optional, and the whole block is optional. **Omitting it behaves exactly as before.**
+- `password_env` names an environment variable read at runtime — `.devmanager.yml` is committed, so never put a plaintext password here. If the named variable is unset, `wop` errors and names it.
+- Resolution precedence is `connection` block → the adapter's standard env vars → built-in defaults. The **same** resolved connection builds both the CLI flags used to create the database and the URL written into `.env`, so creating and connecting can never disagree.
+- `sqlite` has no server; a `connection` block on a sqlite database is a validation error.
+- **`redis` does NOT isolate per branch automatically.** All branches share the same server, and `{database_url_<logical>}` is that shared address — the URL carries no namespace. Isolation is a **convention you must follow**: prefix every key you write with `{db_name_<logical>}` (which resolves to a per-branch value like `myapp_feature_login_9f2a`). `wop down`/`cleanup` then delete exactly `<that-prefix>:*` and a `__wop:<prefix>` sentinel. If you don't prefix your keys, branches will share data and `wop down` won't clean them up.
+
+#### Database `name_pattern` vs env `{branch_slug}`
+
+The same token name, `{branch_slug}`, is sanitized **differently** depending on where it is used, because database names and env values have different rules:
+
+- **In env values** (`services.env`, per-service `env`, `env_source` files), `{branch_slug}` maps `/` → `-` and preserves case: `feature/Login` → `feature-Login`.
+- **In a database `name_pattern`**, `{branch}` and `{branch_slug}` are synonyms and produce a database-safe slug: lowercased, with `/` and `-` both mapped to `_`. Because that mapping is not reversible (`feature/login` and `feature-login` would both become `feature_login`), a short hash of the original branch name is appended **whenever** slugifying changed the string. Simple names such as `main`, `develop` and `staging` are left untouched.
+
+So `feature/login` yields the env slug `feature-login` but a database name like `myapp_feature_login_9f2a3b1c`. This keeps two different branches from silently sharing one database; it makes collisions improbable, not impossible.
+
+#### Copying a database
+
+By default `wop` creates an **empty** database for each worktree (you then seed it via `after_create` hooks). Sometimes you'd rather start from a copy of an existing database — e.g. an app `CarOne` with a `car_one_development` database full of real data. Set `copy_from` to that database's name and `wop` clones it into the name `name_pattern` would have created:
+
+```yaml
+databases:
+  primary:
+    adapter: postgresql
+    name_pattern: "{app}_{branch_slug}"
+    copy_from: car_one_development
+```
+
+`copy_from` is used **literally** — no `{app}` / `{branch_slug}` expansion — so write the exact source database name. How the clone happens per adapter:
+
+| Adapter      | How `copy_from` is cloned                                                                                  |
+| ------------ | ---------------------------------------------------------------------------------------------------------- |
+| `postgresql` | `createdb` the target, then stream `pg_dump <source> \| psql <target>` (works while the source is in use). |
+| `mongodb`    | `mongodump --archive` from the source piped into `mongorestore` with the namespace remapped to the target. |
+| `sqlite`     | Copies the source database file to the target path.                                                        |
+| `redis`      | Copies every `source:*` key to `target:*` with `redis-cli COPY`.                                           |
+
+If the target already exists `wop` skips it; if the source is missing it errors. Custom adapters support copying too via a `copy` command (see below).
 
 #### Custom adapters
 
-If your database isn't supported, define a custom adapter under `custom_adapters`. Provide shell commands for `create`, `drop`, and `url` — use `{db_name}` as the placeholder for the resolved database name. Then reference it by name in `databases.<logical>.adapter`.
+If your database isn't supported, define a custom adapter under `custom_adapters`. Provide shell commands for `create`, `drop`, and `url` — use `{db_name}` as the placeholder for the resolved database name. Then reference it by name in `databases.<logical>.adapter`. Add an optional `copy` command (with `{source_db_name}` and `{db_name}`) to support `copy_from`.
 
 ```yaml
 custom_adapters:
@@ -200,6 +270,7 @@ custom_adapters:
     create: mysql -e "CREATE DATABASE {db_name}"
     drop: mysql -e "DROP DATABASE IF EXISTS {db_name}"
     exists: mysql -e "USE {db_name}" 2>/dev/null  # optional
+    copy: mysql -e "CREATE DATABASE {db_name}" && mysqldump {source_db_name} | mysql {db_name}  # optional, enables copy_from
     url: mysql://root@localhost/{db_name}
 
 databases:
@@ -215,6 +286,8 @@ Hooks are grouped **by service name** (the same keys as under `services`). Only 
 | List           | When it runs (current behavior)                                                                                                          |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `after_create` | After DB creation, before services start. Commands run in the service `dir` with [hook environment](#hook-environment). **Implemented.** |
+| `after_up`     | After all services have started successfully. **Implemented.**                                                                          |
+| `before_down`  | Before `wop down` tears the environment down. **Implemented.**                                                                          |
 
 ---
 
