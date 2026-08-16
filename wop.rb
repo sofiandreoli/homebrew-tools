@@ -5,20 +5,20 @@
 class Wop < Formula
   desc "CLI to spin up isolated per-branch dev environments with git worktrees"
   homepage "https://github.com/sofiandreoli/wop-releases"
-  version "1.0.0"
+  version "2.0.0"
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/sofiandreoli/wop-releases/releases/download/v1.0.0/wop_1.0.0_darwin_amd64.tar.gz"
-      sha256 "f524f9502f2ab043698225b787e903dce9738c59b7e6740e7b777efe57d9e348"
+      url "https://github.com/sofiandreoli/wop-releases/releases/download/v2.0.0/wop_2.0.0_darwin_amd64.tar.gz"
+      sha256 "9488bea110ae2728af5ece16a62a0b5a42f33b78d06ec14a3a1c25d7c693aaca"
 
       define_method(:install) do
         bin.install "wop"
       end
     end
     if Hardware::CPU.arm?
-      url "https://github.com/sofiandreoli/wop-releases/releases/download/v1.0.0/wop_1.0.0_darwin_arm64.tar.gz"
-      sha256 "23d1010442455ec8fae4693617de99fec93ac56e4cf9f9a789f3da284f07c2e3"
+      url "https://github.com/sofiandreoli/wop-releases/releases/download/v2.0.0/wop_2.0.0_darwin_arm64.tar.gz"
+      sha256 "f13b4c006bd47e200c4bd936969a0a177720d0015a50ff32f8926a03f5aa63ea"
 
       define_method(:install) do
         bin.install "wop"
@@ -28,15 +28,15 @@ class Wop < Formula
 
   on_linux do
     if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
-      url "https://github.com/sofiandreoli/wop-releases/releases/download/v1.0.0/wop_1.0.0_linux_amd64.tar.gz"
-      sha256 "5b8b846e9ffe58a5153369cec4f9b8ce454e6f4cf0b05a5ec718c9c0e95504bf"
+      url "https://github.com/sofiandreoli/wop-releases/releases/download/v2.0.0/wop_2.0.0_linux_amd64.tar.gz"
+      sha256 "d436e9761bcf9cb77c74b0b19e8a070ee87e4efb62c0f8424737e794955edcd3"
       define_method(:install) do
         bin.install "wop"
       end
     end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/sofiandreoli/wop-releases/releases/download/v1.0.0/wop_1.0.0_linux_arm64.tar.gz"
-      sha256 "fedc5c56d937729b3c42750ba60cd38b5781934ebcbbc03ea6d0dd05d3603c90"
+      url "https://github.com/sofiandreoli/wop-releases/releases/download/v2.0.0/wop_2.0.0_linux_arm64.tar.gz"
+      sha256 "e13e166a647f05be9805d8deadcd38e228e4680491844cb03da7e5e401f188be"
       define_method(:install) do
         bin.install "wop"
       end
