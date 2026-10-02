@@ -6,13 +6,12 @@ Environments are scoped **per project** (the directory containing `.devmanager.y
 
 ### Supported platforms
 
-- **CLI (`wop`)**: macOS and Linux.
-- **Desktop (Wopper)**: macOS (Apple Silicon and Intel).
+- macOS and Linux.
 - Windows is not supported yet (the process, port and terminal handling are Unix-specific).
 
 ### Versioning
 
-The CLI and the desktop app are released separately (`wop` via Homebrew, `Wopper.app` via DMG) but embed the **same engine** and share one `registry.json`. They stamp a shared version string and record which binary last wrote the registry. Keep them on the **same minor version** — if they diverge, `wop` prints a one-line warning naming both versions. A registry written by a *newer* schema than your binary understands is never modified (upgrade the older side). The app's version is shown in its Help view, alongside a detected `wop` CLI version if one is installed.
+`wop` ships through Homebrew and stamps its version at build time; `wop --version` prints it. State lives in a single `registry.json`, tagged with the schema version that wrote it. A registry written by a *newer* schema than your binary understands is never modified — upgrade `wop` first.
 
 ---
 
@@ -46,6 +45,17 @@ will:
 
 `wop down <branch>` stops registered processes, removes the worktree, drops the branch databases, and clears the registry entry.
 
+### When something else already made the worktree
+
+If another tool has the branch checked out, `wop up <branch>` cannot help you: git refuses the same
+branch in two worktrees. Run `wop up --here` from inside that worktree instead — it does steps 2
+through 7 above and skips step 1, taking the branch from the current `HEAD` and registering the
+environment under the repository's **main** checkout, so it sits alongside your other environments in
+`wop list` and is swept by `wop down all`.
+
+`wop` remembers that it did not create that worktree: `wop down`, `wop down all` and `wop cleanup`
+stop its services and drop its databases as usual, but leave the directory on disk.
+
 ---
 
 ## Committing and pushing from a worktree
@@ -68,7 +78,8 @@ The branch is already set, so no extra flags needed. You're committing directly 
 - **Go 1.22+** only if you build from source.
 - **Database CLI tools** for the adapters you use (e.g. `createdb` / `dropdb` / `psql` for PostgreSQL).
 
-Run all `wop` commands from the **project root** that contains `.devmanager.yml`.
+Run all `wop` commands from the **project root** that contains `.devmanager.yml`. The one exception is
+`wop up --here`, which is meant to be run from inside an existing worktree.
 
 ---
 
@@ -81,20 +92,44 @@ wop --version
 
 ---
 
+## Skills for Claude Code
+
+This repo is also a plugin marketplace. Installing it gives Claude three skills for adopting and
+running `wop` in **your** project:
+
+```bash
+claude plugin marketplace add sofiandreoli/worktree-dev-manager
+claude plugin install wop@wop
+```
+
+| Skill | What it does |
+| ----- | ------------ |
+| `/wop:audit` | Reads your codebase and grades it red/yellow/green against what `wop` needs — hardcoded ports and database names, env files, files a fresh worktree would be missing, and more. Offers to fix the blocking ones, one diff at a time, and writes the report to `docs/wop-readiness.md`. |
+| `/wop:configure` | Writes the `.devmanager.yml` for your repo — services, port ranges, databases, env files and hooks — then proves it works with a real `wop up` on a throwaway branch. |
+| `/wop:use` | Runs `wop` for you day to day: bring a branch up, stop or restart a service, tear an environment down, and diagnose a service that will not start. |
+
+Run them in that order the first time. Updates arrive with `claude plugin update wop`.
+
+---
+
 ## Commands
 
 | Command                               | Description                                                                                                    |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `wop up <branch>`                     | Create worktree, generate env files, create DBs, run `after_create` hooks, start services, register processes. |
+| `wop up --here`                       | Same, in the worktree you are standing in — creates none. Branch comes from the current `HEAD`; the environment registers under the repo's main checkout, and teardown never removes the worktree. |
 | `wop down <branch>`                   | Stop services (from registry), remove worktree, drop DBs, remove registry entry.                               |
+| `wop down all [--global] [-y]`        | Tear down every environment of the current project (`--global` for every project). Asks for confirmation unless `-y`/`--yes` is passed. If an environment on a branch literally named `all` exists, that branch wins; add `-y` or `--global` to force the sweep. |
 | `wop stop <branch>`                   | Kill (`-9`) all services for a branch. Keeps the worktree, databases, and registry entry (PID cleared).        |
 | `wop stop <branch> <service>`         | Kill (`-9`) a single service. Same as above but scoped to one service.                                         |
+| `wop stop all [--global] [-y]`        | Stop every service of the current project (`--global` for every project).                                      |
 | `wop restart <branch>`                | Restart all stopped services for a branch (re-uses stored `cmd` and port).                                     |
 | `wop restart <branch> <service>`      | Restart a single stopped service.                                                                              |
 | `wop list`                            | List active environments (branch, service, port, PID, status).                                                 |
-| `wop cleanup`                         | Remove stale (stopped) entries from the registry; drops worktree and DBs if all services for a branch stopped. |
+| `wop cleanup [--global]`              | Reclaim environments of the current project whose services are **all** stopped: drops the worktree and DBs and removes their registry entries (`--global` for every project). A branch with even one service still running is left alone, entries included — a stopped service beside a running one keeps the `cmd` and port that `wop restart` needs. Use `wop down`/`wop stop` to act on something running. |
 | `wop config show`                     | Print the parsed `.devmanager.yml` for the current directory.                                                  |
 | `wop ports scan`                      | Print the first free port in each service’s `port_range`.                                                      |
+| `wop live`                            | Report which services are really running, and exit `1` if any are. The Homebrew formula runs this before replacing the binary; see [Upgrading](UPGRADING.md). |
 | `wop --version`                       | Print the embedded version string.                                                                             |
 | `wop --help`                          | Short usage (same text as below).                                                                              |
 
@@ -106,11 +141,14 @@ Paths are resolved from your **current working directory**. The parent directory
 
 Example: if the app is `my-first-app`, branch `feature/login`, and you run `wop` from `/projects/my-first-app`, the worktree path is `/projects/my-first-app--feature-login`.
 
+`wop up --here` is the deliberate exception: the worktree is wherever you already are, under whatever
+name its creator chose, and `wop` records it as one it must not remove.
+
 ---
 
 ## `.devmanager.yml`
 
-Place this file at the **root of the project** you run `wop` from (alongside your main `.git`).
+Place this file at the **root of the project** you run `wop` from (alongside your main `.git`). `wop init` generates a starter one, and [`.devmanager.example.yml`](.devmanager.example.yml) in this repo is a fuller sample — it is only a sample, not a config for this repo.
 
 ### Example
 
@@ -325,3 +363,9 @@ Logical keys are sorted alphabetically when operations run; naming is up to you 
 ## Registry
 
 `wop` stores active runs under **`~/.config/devmanager`** so `wop list` and `wop down` can find PIDs and ports.
+
+---
+
+## Contributing
+
+Setup, build and test commands are in [CONTRIBUTING.md](CONTRIBUTING.md). Branch, commit and pull request conventions are in [AGENTS.md](AGENTS.md).
