@@ -5,22 +5,36 @@
 class Wop < Formula
   desc "CLI to spin up isolated per-branch dev environments with git worktrees"
   homepage "https://github.com/sofiandreoli/wop-releases"
-  version "2.0.0"
+  version "3.0.0"
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/sofiandreoli/wop-releases/releases/download/v2.0.0/wop_2.0.0_darwin_amd64.tar.gz"
-      sha256 "9488bea110ae2728af5ece16a62a0b5a42f33b78d06ec14a3a1c25d7c693aaca"
+      url "https://github.com/sofiandreoli/wop-releases/releases/download/v3.0.0/wop_3.0.0_darwin_amd64.tar.gz"
+      sha256 "1b15771a580d0d3e141b12c8c336fc3f7535cf469b8123319523c51d44329c2d"
 
       define_method(:install) do
+        running = wop_live_running
+        if running
+          onoe "wop is still running environments; stopping the upgrade so they are not orphaned."
+          puts running
+          raise "stop them first: wop stop all --global " \
+                "(to upgrade anyway: HOMEBREW_WOP_SKIP_LIVE_CHECK=1 brew upgrade sofiandreoli/tools/wop)"
+        end
         bin.install "wop"
       end
     end
     if Hardware::CPU.arm?
-      url "https://github.com/sofiandreoli/wop-releases/releases/download/v2.0.0/wop_2.0.0_darwin_arm64.tar.gz"
-      sha256 "f13b4c006bd47e200c4bd936969a0a177720d0015a50ff32f8926a03f5aa63ea"
+      url "https://github.com/sofiandreoli/wop-releases/releases/download/v3.0.0/wop_3.0.0_darwin_arm64.tar.gz"
+      sha256 "cdc6714b71c747c602f9e28fc82d054b996905066a86ea5202b6b2500c20a81a"
 
       define_method(:install) do
+        running = wop_live_running
+        if running
+          onoe "wop is still running environments; stopping the upgrade so they are not orphaned."
+          puts running
+          raise "stop them first: wop stop all --global " \
+                "(to upgrade anyway: HOMEBREW_WOP_SKIP_LIVE_CHECK=1 brew upgrade sofiandreoli/tools/wop)"
+        end
         bin.install "wop"
       end
     end
@@ -28,19 +42,70 @@ class Wop < Formula
 
   on_linux do
     if Hardware::CPU.intel? && Hardware::CPU.is_64_bit?
-      url "https://github.com/sofiandreoli/wop-releases/releases/download/v2.0.0/wop_2.0.0_linux_amd64.tar.gz"
-      sha256 "d436e9761bcf9cb77c74b0b19e8a070ee87e4efb62c0f8424737e794955edcd3"
+      url "https://github.com/sofiandreoli/wop-releases/releases/download/v3.0.0/wop_3.0.0_linux_amd64.tar.gz"
+      sha256 "d66c511f06e753dcb0448231c808ab6567b85b77cbcb55ea10e99c4ae7a9c5e6"
       define_method(:install) do
+        running = wop_live_running
+        if running
+          onoe "wop is still running environments; stopping the upgrade so they are not orphaned."
+          puts running
+          raise "stop them first: wop stop all --global " \
+                "(to upgrade anyway: HOMEBREW_WOP_SKIP_LIVE_CHECK=1 brew upgrade sofiandreoli/tools/wop)"
+        end
         bin.install "wop"
       end
     end
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/sofiandreoli/wop-releases/releases/download/v2.0.0/wop_2.0.0_linux_arm64.tar.gz"
-      sha256 "e13e166a647f05be9805d8deadcd38e228e4680491844cb03da7e5e401f188be"
+      url "https://github.com/sofiandreoli/wop-releases/releases/download/v3.0.0/wop_3.0.0_linux_arm64.tar.gz"
+      sha256 "301bab64a9f9532d27eed5f2442d2ddf418437c709d8ab094ae12306f036d5a3"
       define_method(:install) do
+        running = wop_live_running
+        if running
+          onoe "wop is still running environments; stopping the upgrade so they are not orphaned."
+          puts running
+          raise "stop them first: wop stop all --global " \
+                "(to upgrade anyway: HOMEBREW_WOP_SKIP_LIVE_CHECK=1 brew upgrade sofiandreoli/tools/wop)"
+        end
         bin.install "wop"
       end
     end
+  end
+
+  # Stops an upgrade that would orphan running environments, by asking the binary being
+  # installed. Blocks only on an explicit "running" answer; anything else lets brew through.
+  def wop_live_running
+    return nil if ENV["HOMEBREW_WOP_SKIP_LIVE_CHECK"].to_s != ""
+
+    require "English"
+    require "etc"
+    require "timeout"
+
+    # A fresh install has nothing to orphan; on an upgrade the old keg is still in the
+    # Cellar, since Homebrew only unlinks it before installing the new one.
+    cellar = HOMEBREW_CELLAR/"wop"
+    return nil unless cellar.directory? &&
+                      cellar.children.any? { |d| d.directory? && d.basename.to_s != version.to_s }
+
+    wop = buildpath/"wop"
+    return nil unless wop.exist?
+
+    # HOME points at <buildpath>/.brew_home during install, so the real registry has to be
+    # located through the passwd entry and handed over explicitly.
+    state_dir = ENV["HOMEBREW_WOP_STATE_DIR"].to_s
+    state_dir = "#{Etc.getpwuid(Process.uid).dir}/.config/devmanager" if state_dir.empty?
+
+    output = Timeout.timeout(15) do
+      Utils.popen_read({ "WOP_STATE_DIR" => state_dir }, wop.to_s, "live")
+    end
+
+    # The marker matters as much as the exit code: a wop too old to know this subcommand
+    # also exits 1, for "unknown command".
+    return nil unless $CHILD_STATUS.exitstatus == 1 && output.include?("wop-live: running")
+
+    output
+  rescue => e
+    opoo "wop: skipped the running-environment check (#{e.class}: #{e.message})"
+    nil
   end
 
   test do
